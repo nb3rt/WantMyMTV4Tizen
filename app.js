@@ -32,6 +32,14 @@
 
   function now() { return Date.now(); }
 
+  function pageOrigin() {
+    if (window.location && window.location.origin) return window.location.origin;
+    if (window.location && window.location.protocol && window.location.host) {
+      return window.location.protocol + "//" + window.location.host;
+    }
+    return "";
+  }
+
   function safeChannels(obj) {
     var out = [];
     for (var k in obj) if (obj[k] && obj[k].length) out.push(k);
@@ -420,7 +428,7 @@
         showinfo: 0,
         modestbranding: 1,
         playsinline: 1,
-        origin: location.origin
+        origin: pageOrigin()
       },
       events: {
         onReady: function (e) {
