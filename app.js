@@ -376,7 +376,8 @@
 
   function setPlayerVisible(isVisible) {
     if (!playerEl) return;
-    playerEl.style.visibility = isVisible ? "visible" : "hidden";
+    playerEl.style.visibility = "visible";
+    playerEl.style.opacity = isVisible ? "1" : "0";
   }
 
   /* ===== YouTube ===== */
@@ -420,6 +421,7 @@
         onReady: function (e) {
           e.target.mute();
           e.target.playVideo();
+          setPlayerVisible(true);
           startWatchdog();
         },
         onStateChange: function (e) {
@@ -493,6 +495,7 @@
 
   if (document.body) {
     document.body.tabIndex = -1;
+    document.body.classList.add("splash-active");
   }
 
   if (playerEl) {
@@ -594,12 +597,17 @@
       channelIdx = Math.max(0, channels.indexOf(preferredChannel));
       videoIdx = storedPosition(currentChannel());
       playlistsReady = true;
+      hideSplash();
       cb();
       return;
     }
     if (!fromCache && channelIdx >= channels.length) {
       channelIdx = 0;
     }
+  }
+
+  function hideSplash() {
+    if (document.body) document.body.classList.remove("splash-active");
   }
 
   function schedulePlaylistRetry(cb) {
