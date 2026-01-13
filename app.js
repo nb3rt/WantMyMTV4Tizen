@@ -432,10 +432,41 @@
       },
       events: {
         onReady: function (e) {
-          e.target.mute();
           e.target.playVideo();
+          if (userInteracted) e.target.unMute();
           setPlayerVisible(true);
           startWatchdog();
+
+          // TRIPLE SEEK - pomijanie reklam YouTube (wzorowane na wantmymtv.xyz)
+          setTimeout(function() {
+            if (player && player.getPlayerState) {
+              var state = player.getPlayerState();
+              if (state === 1 || state === 2) {
+                var currentTime = player.getCurrentTime();
+                player.seekTo(currentTime, true);
+              }
+            }
+          }, 500);
+
+          setTimeout(function() {
+            if (player && player.getPlayerState) {
+              var state = player.getPlayerState();
+              if (state === 1 || state === 2) {
+                var currentTime = player.getCurrentTime();
+                player.seekTo(currentTime, true);
+              }
+            }
+          }, 1000);
+
+          setTimeout(function() {
+            if (player && player.getPlayerState) {
+              var state = player.getPlayerState();
+              if (state === 1 || state === 2) {
+                var currentTime = player.getCurrentTime();
+                player.seekTo(currentTime, true);
+              }
+            }
+          }, 1500);
         },
         onStateChange: function (e) {
           if (e.data === YT.PlayerState.PLAYING) {
