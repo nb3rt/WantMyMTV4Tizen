@@ -1,269 +1,210 @@
 (function () {
-  // ===== Config =====
   var PLAYLIST_URL = "https://wantmymtv.xyz/public/mtv-playlists.json";
   var DEFAULT_CHANNEL = "80s";
 
-  // ===== UI refs =====
-  var dbgEl = document.getElementById("dbg");
-  var statusEl = document.getElementById("status");
-
-  function log() {
-    try {
-      var s = [].slice.call(arguments).join(" ");
-      if (dbgEl) dbgEl.textContent = s + "\n" + dbgEl.textContent;
-    } catch (e) {}
-  }
-  window.onerror = function (m, u, l, c) {
-    log("ERR:", m, "@", l + ":" + c);
-  };
-
-  function setStatus(s) { if (statusEl) statusEl.textContent = s; }
-
-  // ===== State =====
-  var playlists = null;   // channel -> [videoIds]
+  var playlists = null;
   var channels = [];
   var channelIdx = 0;
   var videoIdx = 0;
 
-  var ytReady = false;
   var player = null;
+  var ytReady = false;
   var lastKeyTs = 0;
+  var playWatchdog = null;
 
-  function now() { return new Date().getTime(); }
+  var titleBar = document.getElementById("titleBar");
+  var artistEl = document.getElementById("artist");
+  var titleEl = document.getElementById("title");
 
-  function safeGetChannelList(obj) {
-    var keys = [];
-    for (var k in obj) {
-      if (!obj.hasOwnProperty(k)) continue;
-      if (obj[k] && obj[k].length) keys.push(k);
-    }
-    if (!keys.length) {
-      for (var k2 in obj) if (obj.hasOwnProperty(k2)) keys.push(k2);
-    }
-    keys.sort();
-    return keys;
-  }
+  /* ===== Helpers ===== */
 
-  function setDefaultChannelIndex() {
-    channelIdx = 0;
-    for (var i = 0; i < channels.length; i++) {
-      if (channels[i] === DEFAULT_CHANNEL) { channelIdx = i; break; }
-    }
+  function now() { return Date.now(); }
+
+  function safeChannels(obj) {
+    var out = [];
+    for (var k in obj) if (obj[k] && obj[k].length) out.push(k);
+    out.sort();
+    return out;
   }
 
   function currentChannel() {
-    if (!channels.length) return DEFAULT_CHANNEL;
-    if (channelIdx < 0) channelIdx = 0;
-    if (channelIdx >= channels.length) channelIdx = channels.length - 1;
-    return channels[channelIdx];
+    return channels[channelIdx] || DEFAULT_CHANNEL;
   }
 
   function currentList() {
-    if (!playlists) return [];
-    return playlists[currentChannel()] || [];
+    return playlists ? (playlists[currentChannel()] || []) : [];
   }
 
-  function clampVideoIndex() {
-    var list = currentList();
-    if (!list.length) { videoIdx = 0; return; }
-    if (videoIdx < 0) videoIdx = list.length - 1;
-    if (videoIdx >= list.length) videoIdx = 0;
+  function clampVideo() {
+    var l = currentList().length;
+    if (!l) videoIdx = 0;
+    else if (videoIdx < 0) videoIdx = l - 1;
+    else if (videoIdx >= l) videoIdx = 0;
   }
 
-  function updateHUD(extra) {
-    var ch = currentChannel();
-    var list = currentList();
-    var count = list.length || 0;
-    var pos = count ? (videoIdx + 1) : 0;
-    setStatus("Kanał: " + ch + " | " + pos + "/" + count + (extra ? (" | " + extra) : ""));
-  }
+  /* ===== Title bar ===== */
 
-  // ===== Load playlists (XHR, ES5) =====
-  function loadPlaylistsXHR(cb) {
-    updateHUD("Ładuję playlisty…");
-    log("Loading playlists:", PLAYLIST_URL);
-
-    var xhr = new XMLHttpRequest();
-    xhr.open("GET", PLAYLIST_URL + "?t=" + now(), true);
-    xhr.onreadystatechange = function () {
-      if (xhr.readyState !== 4) return;
-
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          playlists = JSON.parse(xhr.responseText);
-          channels = safeGetChannelList(playlists);
-          setDefaultChannelIndex();
-          videoIdx = 0;
-
-          log("Playlists OK. Channels:", channels.length);
-          updateHUD("Playlisty OK");
-          cb(true);
-        } catch (e) {
-          log("Playlist JSON parse error:", e);
-          updateHUD("Błąd JSON");
-          cb(false);
-        }
-      } else {
-        log("Playlist XHR failed. status=", xhr.status);
-        updateHUD("Playlist load fail (" + xhr.status + ")");
-        cb(false);
-      }
-    };
-
-    try { xhr.send(null); } catch (e2) {
-      log("Playlist XHR exception:", e2);
-      updateHUD("Wyjątek XHR");
-      cb(false);
+  function parseTitle(raw) {
+    if (!raw) return { artist: "", title: "" };
+    var parts = raw.split(" - ");
+    if (parts.length >= 2) {
+      return {
+        artist: parts[0].trim(),
+        title: parts.slice(1).join(" - ").trim()
+      };
     }
+    return { artist: "", title: raw };
   }
 
-  // ===== YouTube =====
+  function showTitleBar() {
+    titleBar.classList.add("show");
+    clearTimeout(showTitleBar._t);
+    showTitleBar._t = setTimeout(function () {
+      titleBar.classList.remove("show");
+    }, 6000);
+  }
+
+  function updateTitle() {
+    if (!player || !player.getVideoData) return;
+    var data = player.getVideoData();
+    var parsed = parseTitle(data.title || "");
+    artistEl.textContent = parsed.artist;
+    titleEl.textContent = parsed.title;
+    showTitleBar();
+  }
+
+  /* ===== YouTube ===== */
+
   window.onYouTubeIframeAPIReady = function () {
     ytReady = true;
-    log("YT API READY");
     maybeStart();
   };
 
   function createOrLoad(videoId) {
-    if (!ytReady) return;
-    if (!videoId) { updateHUD("Brak videoId"); return; }
+    if (!ytReady || !videoId) return;
 
-    if (player && typeof player.loadVideoById === "function") {
-      try {
-        player.loadVideoById({ videoId: videoId });
-        updateHUD("▶");
-      } catch (e) {
-        log("loadVideoById error:", e);
-        updateHUD("Błąd loadVideoById");
-      }
+    clearTimeout(playWatchdog);
+
+    if (player && player.loadVideoById) {
+      player.loadVideoById(videoId);
+      startWatchdog();
       return;
     }
 
-    log("Creating YT.Player:", videoId);
     player = new YT.Player("player", {
+      videoId: videoId,
       width: "1920",
       height: "1080",
-      videoId: videoId,
       playerVars: {
         autoplay: 1,
-        controls: 1,
+        controls: 0,
         rel: 0,
-        playsinline: 1,
         modestbranding: 1,
+        playsinline: 1,
         origin: location.origin
       },
       events: {
         onReady: function (e) {
-          log("YT onReady");
-          try { e.target.mute(); } catch (_) {}
-          try { e.target.playVideo(); } catch (_) {}
-          updateHUD("Gotowe");
-        },
-        onError: function (e) {
-          log("YT onError code=", e.data);
-          updateHUD("YT error " + e.data);
+          e.target.mute();
+          e.target.playVideo();
+          startWatchdog();
         },
         onStateChange: function (e) {
-          log("YT state=", e.data);
+          if (e.data === YT.PlayerState.PLAYING) {
+            clearTimeout(playWatchdog);
+            updateTitle();
+          }
+          if (e.data === YT.PlayerState.ENDED) nextVideo();
+        },
+        onError: function () {
+          nextVideo(); // 🔒 zabezpieczenie
         }
       }
     });
   }
 
+  function startWatchdog() {
+    playWatchdog = setTimeout(function () {
+      nextVideo();
+    }, 8000);
+  }
+
+  /* ===== Navigation ===== */
+
   function playCurrent() {
     var list = currentList();
-    if (!list.length) { updateHUD("Pusty kanał"); return; }
-    clampVideoIndex();
+    if (!list.length) return;
+    clampVideo();
     createOrLoad(list[videoIdx]);
   }
 
   function nextVideo() {
-    var list = currentList();
-    if (!list.length) { updateHUD("Pusty kanał"); return; }
     videoIdx++;
-    clampVideoIndex();
     playCurrent();
   }
 
   function prevVideo() {
-    var list = currentList();
-    if (!list.length) { updateHUD("Pusty kanał"); return; }
     videoIdx--;
-    clampVideoIndex();
     playCurrent();
   }
 
   function channelUp() {
-    if (!channels.length) return;
-    channelIdx--;
-    if (channelIdx < 0) channelIdx = channels.length - 1;
+    channelIdx = (channelIdx - 1 + channels.length) % channels.length;
     videoIdx = 0;
-    updateHUD("Kanał ↑");
     playCurrent();
   }
 
   function channelDown() {
-    if (!channels.length) return;
-    channelIdx++;
-    if (channelIdx >= channels.length) channelIdx = 0;
+    channelIdx = (channelIdx + 1) % channels.length;
     videoIdx = 0;
-    updateHUD("Kanał ↓");
     playCurrent();
   }
 
-  function togglePausePlay() {
+  function togglePause() {
     if (!player) return;
-    try {
-      var st = player.getPlayerState ? player.getPlayerState() : null;
-      if (st === 1) { player.pauseVideo(); updateHUD("⏸"); }
-      else { player.playVideo(); updateHUD("▶"); }
-    } catch (e) {
-      log("toggle error:", e);
-      updateHUD("Błąd pauza/play");
+    var s = player.getPlayerState();
+    if (s === YT.PlayerState.PLAYING) player.pauseVideo();
+    else player.playVideo();
+    showTitleBar();
+  }
+
+  /* ===== Remote ===== */
+
+  document.addEventListener("keydown", function (e) {
+    var t = now();
+    if (t - lastKeyTs < 120) return;
+    lastKeyTs = t;
+
+    switch (e.keyCode) {
+      case 38: channelUp(); break;
+      case 40: channelDown(); break;
+      case 37: prevVideo(); break;
+      case 39: nextVideo(); break;
+      case 13: togglePause(); break;
+      case 10009:
+        try { tizen.application.getCurrentApplication().exit(); } catch (_) {}
+        break;
     }
-  }
-
-  // ===== Remote keys =====
-  function handleKey(e) {
-    var ts = now();
-    if (ts - lastKeyTs < 120) return;
-    lastKeyTs = ts;
-
-    var code = e.keyCode;
-    log("KEY:", code);
-
-    if (code === 38) { channelUp(); return; }        // Up
-    if (code === 40) { channelDown(); return; }      // Down
-    if (code === 37) { prevVideo(); return; }        // Left
-    if (code === 39) { nextVideo(); return; }        // Right
-    if (code === 13) { togglePausePlay(); return; }  // OK/Enter
-
-    // Play/Pause na niektórych pilotach
-    if (code === 19 || code === 10252) { togglePausePlay(); return; }
-    if (code === 415) { try { player && player.playVideo(); } catch(_){} updateHUD("▶"); return; }
-    if (code === 413) { try { player && player.pauseVideo(); } catch(_){} updateHUD("⏸"); return; }
-
-    // Back (Tizen)
-    if (code === 10009) {
-      updateHUD("Back");
-      try { tizen.application.getCurrentApplication().exit(); } catch (_) {}
-    }
-  }
-  document.addEventListener("keydown", handleKey);
-
-  // ===== Bootstrap =====
-  function maybeStart() {
-    if (!playlists || !ytReady) return;
-    updateHUD("Start");
-    playCurrent();
-  }
-
-  loadPlaylistsXHR(function (ok) {
-    if (!ok) log("Playlists failed (CORS/network).");
-    maybeStart();
   });
 
-  setTimeout(function () {
-    log("WATCHDOG ytReady=", ytReady, "playlistsLoaded=", !!playlists);
-  }, 5000);
+  /* ===== Bootstrap ===== */
+
+  function loadPlaylists(cb) {
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", PLAYLIST_URL + "?t=" + now(), true);
+    xhr.onload = function () {
+      playlists = JSON.parse(xhr.responseText);
+      channels = safeChannels(playlists);
+      channelIdx = Math.max(0, channels.indexOf(DEFAULT_CHANNEL));
+      cb();
+    };
+    xhr.send();
+  }
+
+  function maybeStart() {
+    if (!ytReady || !playlists) return;
+    playCurrent();
+  }
+
+  loadPlaylists(maybeStart);
 })();
