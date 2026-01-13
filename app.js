@@ -428,8 +428,9 @@
       events: {
         onReady: function (e) {
           e.target.playVideo();
-          e.target.unMute();
-          setPlayerVisible(true);
+          // NOTE: NIE unmutować tutaj! YouTube blokuje autoplay jeśli player
+          // jest odmutowany przed rozpoczęciem odtwarzania. Unmute jest w onStateChange PLAYING.
+          // setPlayerVisible(true); - moved to PLAYING state to avoid black screen
           startWatchdog();
 
           // TRIPLE SEEK - pomijanie reklam YouTube (wzorowane na wantmymtv.xyz)
