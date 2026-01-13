@@ -463,8 +463,13 @@
 
   function setPlayerVisible(isVisible) {
     if (!playerEl) return;
-    playerEl.style.visibility = "visible";
-    playerEl.style.opacity = isVisible ? "1" : "0";
+    if (isVisible) {
+      playerEl.style.visibility = "visible";
+      playerEl.style.opacity = "1";
+    } else {
+      playerEl.style.visibility = "hidden";
+      playerEl.style.opacity = "0";
+    }
   }
 
   /* ===== YouTube ===== */
@@ -559,7 +564,7 @@
           var errorCode = event.data;
           var errorMessage = getYouTubeErrorMessage(errorCode);
 
-          // Log the error
+          // Log the error (silent - no user notification to avoid spam)
           logError('Video playback error', {
             videoId: badVideoId,
             errorCode: errorCode,
@@ -574,10 +579,7 @@
             timestamp: now()
           };
 
-          // Show notification to user
-          showNotification('⏭️ Video unavailable, skipping...', 2000);
-
-          // Hide player
+          // Hide player immediately to prevent YouTube error message flash
           setPlayerVisible(false);
 
           // Skip to next video based on direction
