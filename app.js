@@ -30,7 +30,7 @@
 
   /* ===== Logging & Error Handling ===== */
 
-  var DEBUG_MODE = true; // Set to false in production
+  var DEBUG_MODE = false; // Set to false in production
   var errorLog = [];
   var failedVideos = {}; // Blacklist of video IDs that failed to play
   var MAX_ERROR_LOG_SIZE = 50;
@@ -687,7 +687,6 @@
     lastKeyTs = t;
 
     var keyCode = e.keyCode;
-    log('Key pressed', { keyCode: keyCode, key: e.key });
 
     switch (keyCode) {
       // Arrow keys
