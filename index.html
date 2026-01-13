@@ -1,94 +1,88 @@
 <!doctype html>
 <html lang="en">
-<link rel="shortcut icon" href="favicon.ico">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=1920,height=1080,initial-scale=1.0" />
-  <title>MTV Rewind LAN</title>
+  <title>MTV Rewind</title>
 
-  <!-- ORYGINALNE STYLE (CRT, logo glow, itd.) -->
   <link rel="stylesheet" href="styles.css">
-
-  <!-- Minimalne nadpisania pod TV / pilot -->
+  <link rel="shortcut icon" href="favicon.ico">
   <style>
-    /* Na TV wolimy pełny ekran bez panelu bocznego */
-    .container { width: 100vw; height: 100vh; max-width: none; max-height: none; padding: 0; gap: 0; }
-    .tv-frame { width: 100%; height: 100%; border-radius: 0; padding: 1.25rem; }
-    .tv-screen { border-radius: 0; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
 
-    /* HUD i debug – nasze, lekkie, nie wchodzą w interakcje */
-    #hud {
+    #player {
       position: absolute;
-      left: 18px;
-      top: 18px;
-      z-index: 30;
-      background: rgba(0,0,0,0.55);
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ===== TITLE BAR (jak oryginał) ===== */
+    #titleBar {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      padding: 22px 40px;
+      box-sizing: border-box;
+      background: linear-gradient(
+        to top,
+        rgba(0,0,0,0.75),
+        rgba(0,0,0,0.0)
+      );
       color: #fff;
-      padding: 10px 12px;
-      border-radius: 10px;
       font-family: 'VT323', monospace;
-      font-size: 22px;
-      pointer-events: none;
-    }
-    #hud .hint { font-size: 18px; opacity: .85; margin-top: 6px; }
-
-    #dbg {
-      position: absolute;
-      left: 18px;
-      bottom: 18px;
+      font-size: 34px;
+      letter-spacing: 0.5px;
       z-index: 30;
-      background: rgba(0,0,0,0.65);
-      color: #0f0;
-      padding: 8px 10px;
-      border-radius: 10px;
-      font: 14px monospace;
-      max-width: 70vw;
-      max-height: 26vh;
-      overflow: auto;
-      white-space: pre-wrap;
+      opacity: 0;
+      transition: opacity .4s ease;
       pointer-events: none;
     }
 
-    /* Logo: używamy oryginalnej klasy .mtv-logo z styles.css */
-    .mtv-logo { pointer-events: none; cursor: default; }
+    #titleBar.show {
+      opacity: 1;
+    }
+
+    #artist {
+      text-transform: uppercase;
+      opacity: .85;
+    }
+
+    #separator {
+      margin: 0 12px;
+      opacity: .6;
+    }
+
+    #title {
+      font-weight: bold;
+    }
+
+    /* Logo z oryginalnych styles.css */
+    .mtv-logo {
+      pointer-events: none;
+    }
   </style>
 </head>
 
 <body>
-  <div class="container">
-    <div class="tv-frame">
-      <div class="tv-screen">
+  <div id="player"></div>
 
-        <!-- Player -->
-        <div id="player"></div>
+  <img class="mtv-logo" src="mtv-rewind.png" alt="MTV Rewind">
 
-        <!-- Oryginalne CRT overlay layers z styles.css -->
-        <div class="crt-overlay">
-          <div class="scanlines"></div>
-          <div class="flicker"></div>
-          <div class="vignette"></div>
-        </div>
-
-        <!-- Logo w prawym górnym rogu (wg styles.css: .mtv-logo) -->
-        <img class="mtv-logo" src="rewindlogo.png" alt="MTV Rewind"/>
-
-        <!-- HUD -->
-        <div id="hud">
-          <div id="status">Boot…</div>
-          <div class="hint">↑/↓ kanał • ←/→ prev/next • OK pauza/play</div>
-        </div>
-
-        <!-- Debug (opcjonalnie, możesz usunąć) -->
-        <div id="dbg"></div>
-
-      </div>
-    </div>
+  <div id="titleBar">
+    <span id="artist"></span>
+    <span id="separator">—</span>
+    <span id="title"></span>
   </div>
 
-  <!-- YouTube IFrame API -->
   <script src="https://www.youtube.com/iframe_api"></script>
-
-  <!-- Logika (ES5) -->
   <script src="app.js"></script>
 </body>
 </html>
