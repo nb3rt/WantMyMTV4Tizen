@@ -26,37 +26,52 @@
     /* ===== TITLE BAR (jak oryginał) ===== */
     #titleBar {
       position: absolute;
-      left: 0;
-      bottom: 0;
-      width: 100%;
-      padding: 22px 40px;
+      left: 40px;
+      bottom: 40px;
+      max-width: calc(100% - 80px);
+      padding: 14px 26px 16px;
       box-sizing: border-box;
-      background: linear-gradient(
-        to top,
-        rgba(0,0,0,0.75),
-        rgba(0,0,0,0.0)
-      );
+      background: rgba(0, 0, 0, 0.75);
+      border: 2px solid rgba(255, 215, 0, 0.65);
+      border-left-width: 8px;
       color: #fff;
-      font-family: 'VT323', monospace;
-      font-size: 34px;
-      letter-spacing: 0.5px;
       z-index: 30;
       opacity: 0;
-      transition: opacity .4s ease;
+      transform: translateY(12px);
+      transition: opacity .4s ease, transform .4s ease;
       pointer-events: none;
+      text-transform: uppercase;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
     }
 
     #titleBar.show {
       opacity: 1;
+      transform: translateY(0);
+    }
+
+    .titlebar-label {
+      font-family: 'Staatliches', sans-serif;
+      font-size: 20px;
+      letter-spacing: 2px;
+      color: rgba(255, 215, 0, 0.95);
+      margin-bottom: 4px;
+    }
+
+    .titlebar-text {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 12px;
+      font-family: 'VT323', monospace;
+      font-size: 34px;
+      letter-spacing: 0.5px;
     }
 
     #artist {
-      text-transform: uppercase;
-      opacity: .85;
+      opacity: .75;
     }
 
-    #separator {
-      margin: 0 12px;
+    .titlebar-separator {
       opacity: .6;
     }
 
@@ -77,9 +92,12 @@
   <img class="mtv-logo" src="rewindlogo.png" alt="MTV Rewind">
 
   <div id="titleBar">
-    <span id="artist"></span>
-    <span id="separator">—</span>
-    <span id="title"></span>
+    <div class="titlebar-label">Now Playing</div>
+    <div class="titlebar-text">
+      <span id="artist"></span>
+      <span class="titlebar-separator">—</span>
+      <span id="title"></span>
+    </div>
   </div>
 
   <script src="https://www.youtube.com/iframe_api"></script>
