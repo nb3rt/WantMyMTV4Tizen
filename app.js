@@ -463,12 +463,15 @@
 
   function setPlayerVisible(isVisible) {
     if (!playerEl) return;
-    if (isVisible) {
-      playerEl.style.visibility = "visible";
-      playerEl.style.opacity = "1";
-    } else {
-      playerEl.style.visibility = "hidden";
-      playerEl.style.opacity = "0";
+    var iframe = playerEl.querySelector("iframe");
+    // Keep container always visible to avoid YouTube API issues
+    playerEl.style.visibility = "visible";
+    playerEl.style.opacity = isVisible ? "1" : "0";
+
+    // Hide iframe specifically to prevent error message flash
+    if (iframe) {
+      iframe.style.visibility = isVisible ? "visible" : "hidden";
+      iframe.style.opacity = isVisible ? "1" : "0";
     }
   }
 
