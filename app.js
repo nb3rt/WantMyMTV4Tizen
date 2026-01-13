@@ -491,6 +491,11 @@
     okLongPressHandled = false;
   });
 
+  document.addEventListener("tizenhwkey", function (e) {
+    if (e.keyName !== "back") return;
+    try { tizen.application.getCurrentApplication().exit(); } catch (_) {}
+  });
+
   /* ===== Bootstrap ===== */
 
   function loadPlaylists(cb) {
