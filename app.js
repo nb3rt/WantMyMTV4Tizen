@@ -384,8 +384,13 @@
 
   function setPlayerVisible(isVisible) {
     if (!playerEl) return;
+    var iframe = playerEl.querySelector("iframe");
     playerEl.style.visibility = "visible";
-    playerEl.style.opacity = isVisible ? "1" : "0";
+    playerEl.style.opacity = "1";
+    if (iframe) {
+      iframe.style.visibility = isVisible ? "visible" : "hidden";
+      iframe.style.opacity = isVisible ? "1" : "0";
+    }
   }
 
   /* ===== YouTube ===== */
