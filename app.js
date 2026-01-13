@@ -6,6 +6,7 @@
   var channels = [];
   var channelIdx = 0;
   var videoIdx = 0;
+  var state = loadState();
 
   var player = null;
   var ytReady = false;
@@ -32,7 +33,7 @@
   }
 
   function currentList() {
-    return playlists ? (playlists[currentChannel()] || []) : [];
+    return playlistForChannel(currentChannel());
   }
 
   function clampVideo() {
@@ -40,6 +41,87 @@
     if (!l) videoIdx = 0;
     else if (videoIdx < 0) videoIdx = l - 1;
     else if (videoIdx >= l) videoIdx = 0;
+  }
+
+  function loadState() {
+    var fallback = { channel: DEFAULT_CHANNEL, positions: {}, shuffles: {} };
+    if (!window.localStorage) return fallback;
+    try {
+      var raw = localStorage.getItem("wmmtv-state-v1");
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return fallback;
+      parsed.positions = parsed.positions || {};
+      parsed.shuffles = parsed.shuffles || {};
+      parsed.channel = parsed.channel || DEFAULT_CHANNEL;
+      return parsed;
+    } catch (err) {
+      return fallback;
+    }
+  }
+
+  function saveState() {
+    if (!window.localStorage) return;
+    try {
+      localStorage.setItem("wmmtv-state-v1", JSON.stringify(state));
+    } catch (err) {}
+  }
+
+  function normalizePlaylistEntry(entry) {
+    if (!entry) return { videos: [], order: "sequential" };
+    if (Array.isArray(entry)) {
+      return { videos: entry, order: "sequential" };
+    }
+    if (typeof entry === "object") {
+      var videos = entry.videos || entry.list || entry.items || [];
+      var order = entry.order || entry.mode || "";
+      var wantsRandom = entry.shuffle || entry.random;
+      if (!order && wantsRandom) order = "random";
+      order = (order === "random" || order === "shuffle") ? "random" : "sequential";
+      return { videos: videos, order: order };
+    }
+    return { videos: [], order: "sequential" };
+  }
+
+  function playlistForChannel(channel) {
+    if (!playlists) return [];
+    var entry = normalizePlaylistEntry(playlists[channel]);
+    var list = entry.videos || [];
+    if (!list.length) return [];
+    if (entry.order === "random") {
+      var order = ensureShuffle(channel, list.length);
+      return order.map(function (idx) { return list[idx]; });
+    }
+    return list;
+  }
+
+  function ensureShuffle(channel, length) {
+    var order = state.shuffles[channel];
+    if (!Array.isArray(order) || order.length !== length) {
+      order = [];
+      for (var i = 0; i < length; i++) order.push(i);
+      for (var j = order.length - 1; j > 0; j--) {
+        var k = Math.floor(Math.random() * (j + 1));
+        var tmp = order[j];
+        order[j] = order[k];
+        order[k] = tmp;
+      }
+      state.shuffles[channel] = order;
+      saveState();
+    }
+    return order;
+  }
+
+  function storedPosition(channel) {
+    var pos = state.positions[channel];
+    return (typeof pos === "number" && pos >= 0) ? pos : 0;
+  }
+
+  function syncState() {
+    var channel = currentChannel();
+    state.channel = channel;
+    state.positions[channel] = videoIdx;
+    saveState();
   }
 
   /* ===== Title bar ===== */
@@ -105,7 +187,7 @@
       },
       events: {
         onReady: function (e) {
-          e.target.mute();
+          e.target.unMute();
           e.target.playVideo();
           startWatchdog();
         },
@@ -136,6 +218,7 @@
     if (!list.length) return;
     clampVideo();
     createOrLoad(list[videoIdx]);
+    syncState();
   }
 
   function nextVideo() {
@@ -150,13 +233,13 @@
 
   function channelUp() {
     channelIdx = (channelIdx - 1 + channels.length) % channels.length;
-    videoIdx = 0;
+    videoIdx = storedPosition(currentChannel());
     playCurrent();
   }
 
   function channelDown() {
     channelIdx = (channelIdx + 1) % channels.length;
-    videoIdx = 0;
+    videoIdx = storedPosition(currentChannel());
     playCurrent();
   }
 
@@ -195,7 +278,9 @@
     xhr.onload = function () {
       playlists = JSON.parse(xhr.responseText);
       channels = safeChannels(playlists);
-      channelIdx = Math.max(0, channels.indexOf(DEFAULT_CHANNEL));
+      var preferredChannel = state.channel || DEFAULT_CHANNEL;
+      channelIdx = Math.max(0, channels.indexOf(preferredChannel));
+      videoIdx = storedPosition(currentChannel());
       cb();
     };
     xhr.send();
