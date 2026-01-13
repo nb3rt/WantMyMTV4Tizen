@@ -15,6 +15,11 @@
   var okLongPressTimer = null;
   var okLongPressHandled = false;
   var playWatchdog = null;
+  var userInteracted = false;
+  var playlistsReady = false;
+  var PLAYLIST_CACHE_KEY = "wmmtv-playlists-v1";
+  var INTERLEAVE_POOL_KEYS = ["ads", "promos", "bumpers", "ids", "intros", "mtv"];
+  var SEQUENTIAL_CHANNEL_PATTERNS = ["live aid"];
 
   var titleBar = document.getElementById("titleBar");
   var artistEl = document.getElementById("artist");
@@ -88,9 +93,9 @@
   }
 
   function normalizePlaylistEntry(entry) {
-    if (!entry) return { videos: [], order: "sequential" };
+    if (!entry) return { videos: [], order: "" };
     if (Array.isArray(entry)) {
-      return { videos: entry, order: "sequential" };
+      return { videos: entry, order: "" };
     }
     if (typeof entry === "object") {
       var videos = entry.videos || entry.list || entry.items || [];
@@ -99,10 +104,11 @@
       var interleave = entry.interleave || entry.mix || entry.inserts || null;
       var wantsRandom = entry.shuffle || entry.random;
       if (!order && wantsRandom) order = "random";
-      order = (order === "random" || order === "shuffle") ? "random" : "sequential";
+      if (order === "random" || order === "shuffle") order = "random";
+      if (order === "sequential") order = "sequential";
       return { videos: videos, order: order, name: name, interleave: interleave };
     }
-    return { videos: [], order: "sequential" };
+    return { videos: [], order: "" };
   }
 
   function playlistForChannel(channel) {
@@ -112,37 +118,34 @@
     var entry = normalizePlaylistEntry(rawEntry);
     var list = entry.videos || [];
     if (!list.length) return [];
-    if (entry.order === "random") {
+    var wantsRandom = entry.order === "random";
+    var wantsSequential = entry.order === "sequential";
+    if (!wantsRandom && !wantsSequential) {
+      wantsRandom = shouldShuffleChannel(channel, entry);
+      wantsSequential = !wantsRandom;
+    }
+    if (wantsRandom) {
       var order = ensureShuffle(channel, list.length);
       list = order.map(function (idx) { return list[idx]; });
     }
-    var interleave = normalizeInterleave(rawEntry, entry.interleave);
+    var interleave = normalizeInterleave(rawEntry, entry.interleave, channel);
     return interleave ? interleaveList(channel, list, interleave) : list;
   }
 
-  function normalizeInterleave(rawEntry, normalizedConfig) {
-    if (!rawEntry || typeof rawEntry !== "object") return null;
-    var config = normalizedConfig || rawEntry.interleave || rawEntry.mix || rawEntry.inserts || null;
+  function normalizeInterleave(rawEntry, normalizedConfig, channel) {
+    if (channel && isInterleavePoolChannel(channel)) return null;
+    if (!rawEntry || typeof rawEntry !== "object") rawEntry = null;
+    var config = normalizedConfig || (rawEntry && (rawEntry.interleave || rawEntry.mix || rawEntry.inserts)) || null;
     var pools = [];
     var source = config && typeof config === "object" ? config : rawEntry;
-    var candidates = [
-      { key: "ads", label: "ads" },
-      { key: "promos", label: "promos" },
-      { key: "bumpers", label: "bumpers" },
-      { key: "ids", label: "ids" },
-      { key: "intros", label: "intros" },
-      { key: "mtv", label: "mtv" }
-    ];
-    for (var i = 0; i < candidates.length; i++) {
-      var list = source[candidates[i].key];
-      if (Array.isArray(list) && list.length) {
-        pools.push({ name: candidates[i].label, items: list });
-      }
+    pools = buildInterleavePools(source);
+    if (!pools.length) {
+      pools = buildInterleavePools(playlists);
     }
     if (!pools.length) return null;
-    var minInterval = source.minInterval || source.minInsert || source.min || null;
-    var maxInterval = source.maxInterval || source.maxInsert || source.max || null;
-    var every = source.every || source.insertEvery || null;
+    var minInterval = (source && (source.minInterval || source.minInsert || source.min)) || null;
+    var maxInterval = (source && (source.maxInterval || source.maxInsert || source.max)) || null;
+    var every = source && (source.every || source.insertEvery) || null;
     if (every && !minInterval && !maxInterval) {
       minInterval = every;
       maxInterval = every;
@@ -151,6 +154,44 @@
     maxInterval = maxInterval || 5;
     if (maxInterval < minInterval) maxInterval = minInterval;
     return { pools: pools, minInterval: minInterval, maxInterval: maxInterval };
+  }
+
+  function buildInterleavePools(source) {
+    if (!source || typeof source !== "object") return [];
+    var pools = [];
+    for (var i = 0; i < INTERLEAVE_POOL_KEYS.length; i++) {
+      var key = INTERLEAVE_POOL_KEYS[i];
+      var raw = source[key];
+      var items = listFromPoolEntry(raw);
+      if (items.length) pools.push({ name: key, items: items });
+    }
+    return pools;
+  }
+
+  function listFromPoolEntry(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "object") {
+      var entry = normalizePlaylistEntry(raw);
+      return entry.videos || [];
+    }
+    return [];
+  }
+
+  function isInterleavePoolChannel(channel) {
+    var name = String(channel || "").toLowerCase();
+    for (var i = 0; i < INTERLEAVE_POOL_KEYS.length; i++) {
+      if (name === INTERLEAVE_POOL_KEYS[i]) return true;
+    }
+    return false;
+  }
+
+  function shouldShuffleChannel(channel, entry) {
+    var label = String((entry && (entry.name || "")) || channel || "").toLowerCase();
+    for (var i = 0; i < SEQUENTIAL_CHANNEL_PATTERNS.length; i++) {
+      if (label.indexOf(SEQUENTIAL_CHANNEL_PATTERNS[i]) !== -1) return false;
+    }
+    return true;
   }
 
   function interleaveList(channel, list, interleave) {
@@ -356,6 +397,7 @@
       host: "https://www.youtube-nocookie.com",
       playerVars: {
         autoplay: 1,
+        mute: 1,
         controls: 0,
         rel: 0,
         disablekb: 1,
@@ -368,14 +410,14 @@
       },
       events: {
         onReady: function (e) {
-          e.target.unMute();
+          e.target.mute();
           e.target.playVideo();
           startWatchdog();
         },
         onStateChange: function (e) {
           if (e.data === YT.PlayerState.PLAYING) {
             clearTimeout(playWatchdog);
-            e.target.unMute();
+            if (userInteracted) e.target.unMute();
             if (e.target.setVolume) e.target.setVolume(100);
             setPlayerVisible(true);
             updateTitle();
@@ -454,6 +496,8 @@
   }
 
   document.addEventListener("keydown", function (e) {
+    userInteracted = true;
+    if (player && player.unMute) player.unMute();
     var t = now();
     if (t - lastKeyTs < 120) return;
     lastKeyTs = t;
@@ -499,17 +543,78 @@
   /* ===== Bootstrap ===== */
 
   function loadPlaylists(cb) {
+    var cached = loadCachedPlaylists();
+    if (cached) {
+      applyPlaylists(cached, cb, true);
+    }
+
     var xhr = new XMLHttpRequest();
     xhr.open("GET", PLAYLIST_URL + "?t=" + now(), true);
+    xhr.timeout = 8000;
     xhr.onload = function () {
-      playlists = JSON.parse(xhr.responseText);
-      channels = buildChannels(playlists);
+      if (xhr.status < 200 || xhr.status >= 300) {
+        schedulePlaylistRetry(cb);
+        return;
+      }
+      try {
+        var parsed = JSON.parse(xhr.responseText);
+        if (!parsed || typeof parsed !== "object") throw new Error("Invalid playlists");
+        storeCachedPlaylists(parsed);
+        applyPlaylists(parsed, cb, false);
+      } catch (err) {
+        schedulePlaylistRetry(cb);
+      }
+    };
+    xhr.onerror = function () {
+      schedulePlaylistRetry(cb);
+    };
+    xhr.ontimeout = function () {
+      schedulePlaylistRetry(cb);
+    };
+    xhr.send();
+  }
+
+  function applyPlaylists(data, cb, fromCache) {
+    playlists = data;
+    channels = buildChannels(playlists);
+    if (!playlistsReady) {
       var preferredChannel = state.channel || DEFAULT_CHANNEL;
       channelIdx = Math.max(0, channels.indexOf(preferredChannel));
       videoIdx = storedPosition(currentChannel());
+      playlistsReady = true;
       cb();
-    };
-    xhr.send();
+      return;
+    }
+    if (!fromCache && channelIdx >= channels.length) {
+      channelIdx = 0;
+    }
+  }
+
+  function schedulePlaylistRetry(cb) {
+    if (playlistsReady) return;
+    setTimeout(function () {
+      loadPlaylists(cb);
+    }, 5000);
+  }
+
+  function loadCachedPlaylists() {
+    if (!window.localStorage) return null;
+    try {
+      var raw = localStorage.getItem(PLAYLIST_CACHE_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return null;
+      return parsed;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function storeCachedPlaylists(data) {
+    if (!window.localStorage) return;
+    try {
+      localStorage.setItem(PLAYLIST_CACHE_KEY, JSON.stringify(data));
+    } catch (err) {}
   }
 
   function maybeStart() {
