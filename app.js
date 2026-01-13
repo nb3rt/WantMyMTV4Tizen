@@ -356,6 +356,14 @@
     }, 6000);
   }
 
+  function showError(message) {
+    if (!titleBar) return;
+    if (listLabelEl) listLabelEl.textContent = "BŁĄD";
+    if (artistEl) artistEl.textContent = "";
+    if (titleEl) titleEl.textContent = message || "Wystąpił błąd";
+    showTitleBar();
+  }
+
   function updateTitle() {
     if (!player || !player.getVideoData) return;
     var data = player.getVideoData();
@@ -553,6 +561,7 @@
     xhr.timeout = 8000;
     xhr.onload = function () {
       if (xhr.status < 200 || xhr.status >= 300) {
+        showError("Nie można pobrać playlist");
         schedulePlaylistRetry(cb);
         return;
       }
@@ -562,13 +571,16 @@
         storeCachedPlaylists(parsed);
         applyPlaylists(parsed, cb, false);
       } catch (err) {
+        showError("Błąd danych playlist");
         schedulePlaylistRetry(cb);
       }
     };
     xhr.onerror = function () {
+      showError("Błąd sieci przy pobieraniu playlist");
       schedulePlaylistRetry(cb);
     };
     xhr.ontimeout = function () {
+      showError("Przekroczono czas pobierania playlist");
       schedulePlaylistRetry(cb);
     };
     xhr.send();
