@@ -433,7 +433,7 @@
       events: {
         onReady: function (e) {
           e.target.playVideo();
-          if (userInteracted) e.target.unMute();
+          e.target.unMute();
           setPlayerVisible(true);
           startWatchdog();
 
@@ -471,7 +471,7 @@
         onStateChange: function (e) {
           if (e.data === YT.PlayerState.PLAYING) {
             clearTimeout(playWatchdog);
-            if (userInteracted) e.target.unMute();
+            e.target.unMute();
             if (e.target.setVolume) e.target.setVolume(100);
             setPlayerVisible(true);
             updateTitle();
