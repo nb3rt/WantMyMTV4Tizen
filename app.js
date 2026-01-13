@@ -686,11 +686,37 @@
     if (t - lastKeyTs < 120) return;
     lastKeyTs = t;
 
-    switch (e.keyCode) {
-      case 38: channelUp(); break;
-      case 40: channelDown(); break;
-      case 37: prevVideo(); break;
-      case 39: nextVideo(); break;
+    var keyCode = e.keyCode;
+    log('Key pressed', { keyCode: keyCode, key: e.key });
+
+    switch (keyCode) {
+      // Arrow keys
+      case 38: channelUp(); break;           // Arrow Up
+      case 40: channelDown(); break;         // Arrow Down
+      case 37: prevVideo(); break;           // Arrow Left
+      case 39: nextVideo(); break;           // Arrow Right
+
+      // Media remote keys - Play/Pause
+      case 415: togglePause(); break;        // MediaPlay
+      case 19: togglePause(); break;         // MediaPause
+      case 463: togglePause(); break;        // PlayPause (Samsung)
+      case 10252: togglePause(); break;      // PlayPause (LG WebOS)
+      case 179: togglePause(); break;        // MediaPlayPause (generic)
+      case 32: togglePause(); break;         // Space bar (fallback)
+
+      // Media remote keys - Track Next/Previous
+      case 417: nextVideo(); break;          // MediaTrackNext / MediaFastForward
+      case 412: prevVideo(); break;          // MediaTrackPrevious / MediaRewind
+      case 176: nextVideo(); break;          // MediaNextTrack (generic)
+      case 177: prevVideo(); break;          // MediaPreviousTrack (generic)
+
+      // Channel Up/Down (additional keycodes)
+      case 427: channelUp(); break;          // ChannelUp (Samsung)
+      case 428: channelDown(); break;        // ChannelDown (Samsung)
+      case 33: channelUp(); break;           // PageUp (fallback)
+      case 34: channelDown(); break;         // PageDown (fallback)
+
+      // OK/Enter button (short press = pause, long press = favorite)
       case 13:
         if (!okLongPressTimer) {
           okLongPressHandled = false;
@@ -701,8 +727,50 @@
           }, 700);
         }
         break;
+
+      // Back button (WebTV/Smart TV)
+      case 461: // Back (Samsung Smart TV)
+      case 10182: // Back (LG WebOS)
+      case 8: // Backspace (fallback)
+        e.preventDefault();
+        log('Back button pressed - exiting app');
+        try {
+          if (typeof tizen !== 'undefined') {
+            tizen.application.getCurrentApplication().exit();
+          } else if (typeof webOS !== 'undefined') {
+            webOS.platformBack();
+          } else {
+            window.history.back();
+          }
+        } catch (err) {
+          log('Exit failed', err);
+        }
+        break;
+
+      // Exit button (Tizen specific)
       case 10009:
+        e.preventDefault();
         try { tizen.application.getCurrentApplication().exit(); } catch (_) {}
+        break;
+
+      // Color buttons (optional - for future features)
+      case 403: // Red button
+      case 404: // Green button
+      case 405: // Yellow button
+      case 406: // Blue button
+        log('Color button pressed', { keyCode: keyCode });
+        // Reserved for future features
+        break;
+
+      // Stop button
+      case 413: // MediaStop
+      case 178: // MediaStop (generic)
+        togglePause();
+        break;
+
+      // Info/Details button
+      case 457: // Info button (Samsung)
+        showTitleBar();
         break;
     }
   });
@@ -720,8 +788,17 @@
   });
 
   document.addEventListener("tizenhwkey", function (e) {
-    if (e.keyName !== "back") return;
-    try { tizen.application.getCurrentApplication().exit(); } catch (_) {}
+    log('Tizen HW key', { keyName: e.keyName });
+
+    if (e.keyName === "back") {
+      e.preventDefault();
+      log('Tizen back button - exiting app');
+      try {
+        tizen.application.getCurrentApplication().exit();
+      } catch (err) {
+        log('Tizen exit failed', err);
+      }
+    }
   });
 
   /* ===== Bootstrap ===== */
