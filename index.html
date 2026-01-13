@@ -83,6 +83,32 @@
     .mtv-logo {
       pointer-events: none;
     }
+
+    /* ===== Toast Notifications ===== */
+    .notification-toast {
+      position: fixed;
+      top: 80px;
+      right: 40px;
+      background: rgba(0, 0, 0, 0.95);
+      color: #ffd700;
+      padding: 20px 30px;
+      border-radius: 8px;
+      border-left: 6px solid #ffd700;
+      font-family: 'VT323', monospace;
+      font-size: 28px;
+      z-index: 9999;
+      opacity: 0;
+      transform: translateX(100px);
+      transition: all 0.3s ease;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+      max-width: 500px;
+      letter-spacing: 1px;
+    }
+
+    .notification-toast.show {
+      opacity: 1;
+      transform: translateX(0);
+    }
   </style>
 </head>
 

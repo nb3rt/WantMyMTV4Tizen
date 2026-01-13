@@ -28,6 +28,76 @@
   var playerEl = document.getElementById("player");
   var lastDirection = 1;
 
+  /* ===== Logging & Error Handling ===== */
+
+  var DEBUG_MODE = true; // Set to false in production
+  var errorLog = [];
+  var failedVideos = {}; // Blacklist of video IDs that failed to play
+  var MAX_ERROR_LOG_SIZE = 50;
+
+  function log() {
+    if (!DEBUG_MODE) return;
+    var args = Array.prototype.slice.call(arguments);
+    var timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+    console.log.apply(console, ['[MTV ' + timestamp + ']'].concat(args));
+  }
+
+  function logError(message, data) {
+    var entry = {
+      timestamp: new Date().toISOString(),
+      message: message,
+      data: data
+    };
+    errorLog.push(entry);
+    if (errorLog.length > MAX_ERROR_LOG_SIZE) {
+      errorLog.shift();
+    }
+    log('ERROR:', message, data);
+
+    // Store in localStorage for debugging
+    try {
+      localStorage.setItem('wmmtv-error-log', JSON.stringify(errorLog.slice(-20)));
+    } catch (e) {}
+  }
+
+  function showNotification(message, duration) {
+    duration = duration || 3000;
+
+    // Remove existing notification
+    var existing = document.querySelector('.notification-toast');
+    if (existing) existing.remove();
+
+    // Create notification element
+    var notification = document.createElement('div');
+    notification.className = 'notification-toast';
+    notification.textContent = message;
+    document.body.appendChild(notification);
+
+    // Trigger animation
+    setTimeout(function() {
+      notification.classList.add('show');
+    }, 10);
+
+    // Remove after duration
+    setTimeout(function() {
+      notification.classList.remove('show');
+      setTimeout(function() {
+        notification.remove();
+      }, 300);
+    }, duration);
+  }
+
+  function getYouTubeErrorMessage(errorCode) {
+    switch(errorCode) {
+      case 2: return 'Invalid video parameter';
+      case 5: return 'HTML5 player error';
+      case 100: return 'Video not found or removed';
+      case 101: return 'Video not allowed to embed';
+      case 150: return 'Video not allowed to embed';
+      default: return 'Unknown error (' + errorCode + ')';
+    }
+  }
+
   /* ===== Helpers ===== */
 
   function now() { return Date.now(); }
@@ -326,7 +396,11 @@
     var favorites = state.favorites || [];
     if (currentChannel() === FAVORITES_CHANNEL) {
       var removeIdx = favorites.indexOf(currentVideo);
-      if (removeIdx !== -1) favorites.splice(removeIdx, 1);
+      if (removeIdx !== -1) {
+        favorites.splice(removeIdx, 1);
+        log('Removed from favorites', { videoId: currentVideo });
+        showNotification('❌ Removed from favorites', 2000);
+      }
       state.favorites = favorites;
       saveState();
       if (!favorites.length) return;
@@ -338,6 +412,11 @@
       favorites.push(currentVideo);
       state.favorites = favorites;
       saveState();
+      log('Added to favorites', { videoId: currentVideo, totalFavorites: favorites.length });
+      showNotification('⭐ Added to favorites (' + favorites.length + ')', 2000);
+    } else {
+      log('Already in favorites', { videoId: currentVideo });
+      showNotification('⚠️ Already in favorites', 2000);
     }
     showTitleBar();
   }
@@ -479,10 +558,36 @@
           }
           if (e.data === YT.PlayerState.ENDED) nextVideo();
         },
-        onError: function () {
+        onError: function (event) {
+          var list = currentList();
+          var badVideoId = list[videoIdx] || 'unknown';
+          var errorCode = event.data;
+          var errorMessage = getYouTubeErrorMessage(errorCode);
+
+          // Log the error
+          logError('Video playback error', {
+            videoId: badVideoId,
+            errorCode: errorCode,
+            errorMessage: errorMessage,
+            channel: currentChannel(),
+            videoIndex: videoIdx
+          });
+
+          // Add to blacklist (don't try this video again in this session)
+          failedVideos[badVideoId] = {
+            errorCode: errorCode,
+            timestamp: now()
+          };
+
+          // Show notification to user
+          showNotification('⏭️ Video unavailable, skipping...', 2000);
+
+          // Hide player
           setPlayerVisible(false);
+
+          // Skip to next video based on direction
           if (lastDirection < 0) prevVideo();
-          else nextVideo(); // 🔒 zabezpieczenie
+          else nextVideo();
         }
       }
     });
@@ -498,9 +603,28 @@
 
   function playCurrent() {
     var list = currentList();
-    if (!list.length) return;
+    if (!list.length) {
+      logError('No videos in current playlist', { channel: currentChannel() });
+      return;
+    }
     clampVideo();
-    createOrLoad(list[videoIdx]);
+    var videoId = list[videoIdx];
+
+    // Skip blacklisted videos
+    if (failedVideos[videoId]) {
+      log('Skipping blacklisted video:', videoId);
+      nextVideo();
+      return;
+    }
+
+    log('Playing video', {
+      channel: currentChannel(),
+      videoIndex: videoIdx,
+      totalVideos: list.length,
+      videoId: videoId
+    });
+
+    createOrLoad(videoId);
     syncState();
   }
 
@@ -519,12 +643,16 @@
   function channelUp() {
     channelIdx = (channelIdx - 1 + channels.length) % channels.length;
     videoIdx = storedPosition(currentChannel());
+    log('Channel UP', { channel: currentChannel(), channelIdx: channelIdx });
+    showNotification('📺 ' + currentListLabel(), 2000);
     playCurrent();
   }
 
   function channelDown() {
     channelIdx = (channelIdx + 1) % channels.length;
     videoIdx = storedPosition(currentChannel());
+    log('Channel DOWN', { channel: currentChannel(), channelIdx: channelIdx });
+    showNotification('📺 ' + currentListLabel(), 2000);
     playCurrent();
   }
 
@@ -599,8 +727,11 @@
   /* ===== Bootstrap ===== */
 
   function loadPlaylists(cb) {
+    log('Loading playlists from', PLAYLIST_URL);
+
     var cached = loadCachedPlaylists();
     if (cached) {
+      log('Using cached playlists');
       applyPlaylists(cached, cb, true);
     }
 
@@ -609,6 +740,7 @@
     xhr.timeout = 8000;
     xhr.onload = function () {
       if (xhr.status < 200 || xhr.status >= 300) {
+        logError("Failed to fetch playlists", { status: xhr.status, statusText: xhr.statusText });
         showError("Nie można pobrać playlist");
         schedulePlaylistRetry(cb);
         return;
@@ -616,18 +748,22 @@
       try {
         var parsed = JSON.parse(xhr.responseText);
         if (!parsed || typeof parsed !== "object") throw new Error("Invalid playlists");
+        log('Playlists loaded successfully', { channels: Object.keys(parsed).length });
         storeCachedPlaylists(parsed);
         applyPlaylists(parsed, cb, false);
       } catch (err) {
+        logError("Failed to parse playlists", { error: err.message });
         showError("Błąd danych playlist");
         schedulePlaylistRetry(cb);
       }
     };
     xhr.onerror = function () {
+      logError("Network error loading playlists");
       showError("Błąd sieci przy pobieraniu playlist");
       schedulePlaylistRetry(cb);
     };
     xhr.ontimeout = function () {
+      logError("Timeout loading playlists", { timeout: xhr.timeout });
       showError("Przekroczono czas pobierania playlist");
       schedulePlaylistRetry(cb);
     };
@@ -637,17 +773,28 @@
   function applyPlaylists(data, cb, fromCache) {
     playlists = data;
     channels = buildChannels(playlists);
+    log('Applied playlists', {
+      fromCache: fromCache,
+      totalChannels: channels.length,
+      channels: channels.join(', ')
+    });
+
     if (!playlistsReady) {
       var preferredChannel = state.channel || DEFAULT_CHANNEL;
       channelIdx = Math.max(0, channels.indexOf(preferredChannel));
       videoIdx = storedPosition(currentChannel());
       playlistsReady = true;
+      log('App ready', {
+        startChannel: currentChannel(),
+        startVideoIdx: videoIdx
+      });
       hideSplash();
       cb();
       return;
     }
     if (!fromCache && channelIdx >= channels.length) {
       channelIdx = 0;
+      log('Channel index reset', { newChannelIdx: channelIdx });
     }
   }
 
