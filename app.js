@@ -468,9 +468,10 @@
     playerEl.style.visibility = "visible";
     playerEl.style.opacity = isVisible ? "1" : "0";
 
-    // Hide iframe specifically to prevent error message flash
+    // Use ONLY opacity on iframe (not visibility:hidden) to prevent breaking autoplay
+    // YouTube requires iframe visibility:visible for autoplay to work
     if (iframe) {
-      iframe.style.visibility = isVisible ? "visible" : "hidden";
+      iframe.style.visibility = "visible"; // Always visible for YouTube autoplay
       iframe.style.opacity = isVisible ? "1" : "0";
     }
   }
