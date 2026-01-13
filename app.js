@@ -187,7 +187,7 @@
       },
       events: {
         onReady: function (e) {
-          e.target.mute();
+          e.target.unMute();
           e.target.playVideo();
           startWatchdog();
         },
