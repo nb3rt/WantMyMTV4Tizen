@@ -1,20 +1,27 @@
 (function () {
   var PLAYLIST_URL = "https://wantmymtv.xyz/public/mtv-playlists.json";
   var DEFAULT_CHANNEL = "80s";
+  var FAVORITES_CHANNEL = "My MTV Favs";
 
   var playlists = null;
   var channels = [];
   var channelIdx = 0;
   var videoIdx = 0;
+  var state = loadState();
 
   var player = null;
   var ytReady = false;
   var lastKeyTs = 0;
+  var okLongPressTimer = null;
+  var okLongPressHandled = false;
   var playWatchdog = null;
 
   var titleBar = document.getElementById("titleBar");
   var artistEl = document.getElementById("artist");
   var titleEl = document.getElementById("title");
+  var listLabelEl = document.getElementById("listLabel");
+  var playerEl = document.getElementById("player");
+  var lastDirection = 1;
 
   /* ===== Helpers ===== */
 
@@ -32,7 +39,7 @@
   }
 
   function currentList() {
-    return playlists ? (playlists[currentChannel()] || []) : [];
+    return playlistForChannel(currentChannel());
   }
 
   function clampVideo() {
@@ -40,6 +47,250 @@
     if (!l) videoIdx = 0;
     else if (videoIdx < 0) videoIdx = l - 1;
     else if (videoIdx >= l) videoIdx = 0;
+  }
+
+  function loadState() {
+    var fallback = {
+      channel: DEFAULT_CHANNEL,
+      positions: {},
+      shuffles: {},
+      interleaves: {},
+      favorites: []
+    };
+    if (!window.localStorage) return fallback;
+    try {
+      var raw = localStorage.getItem("wmmtv-state-v1");
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return fallback;
+      parsed.positions = parsed.positions || {};
+      parsed.shuffles = parsed.shuffles || {};
+      parsed.interleaves = parsed.interleaves || {};
+      parsed.favorites = parsed.favorites || [];
+      parsed.channel = parsed.channel || DEFAULT_CHANNEL;
+      return parsed;
+    } catch (err) {
+      return fallback;
+    }
+  }
+
+  function saveState() {
+    if (!window.localStorage) return;
+    try {
+      localStorage.setItem("wmmtv-state-v1", JSON.stringify(state));
+    } catch (err) {}
+  }
+
+  function buildChannels(obj) {
+    var out = safeChannels(obj);
+    if (out.indexOf(FAVORITES_CHANNEL) === -1) out.push(FAVORITES_CHANNEL);
+    return out;
+  }
+
+  function normalizePlaylistEntry(entry) {
+    if (!entry) return { videos: [], order: "sequential" };
+    if (Array.isArray(entry)) {
+      return { videos: entry, order: "sequential" };
+    }
+    if (typeof entry === "object") {
+      var videos = entry.videos || entry.list || entry.items || [];
+      var name = entry.name || entry.title || "";
+      var order = entry.order || entry.mode || "";
+      var interleave = entry.interleave || entry.mix || entry.inserts || null;
+      var wantsRandom = entry.shuffle || entry.random;
+      if (!order && wantsRandom) order = "random";
+      order = (order === "random" || order === "shuffle") ? "random" : "sequential";
+      return { videos: videos, order: order, name: name, interleave: interleave };
+    }
+    return { videos: [], order: "sequential" };
+  }
+
+  function playlistForChannel(channel) {
+    if (!playlists) return [];
+    if (channel === FAVORITES_CHANNEL) return state.favorites || [];
+    var rawEntry = playlists[channel];
+    var entry = normalizePlaylistEntry(rawEntry);
+    var list = entry.videos || [];
+    if (!list.length) return [];
+    if (entry.order === "random") {
+      var order = ensureShuffle(channel, list.length);
+      list = order.map(function (idx) { return list[idx]; });
+    }
+    var interleave = normalizeInterleave(rawEntry, entry.interleave);
+    return interleave ? interleaveList(channel, list, interleave) : list;
+  }
+
+  function normalizeInterleave(rawEntry, normalizedConfig) {
+    if (!rawEntry || typeof rawEntry !== "object") return null;
+    var config = normalizedConfig || rawEntry.interleave || rawEntry.mix || rawEntry.inserts || null;
+    var pools = [];
+    var source = config && typeof config === "object" ? config : rawEntry;
+    var candidates = [
+      { key: "ads", label: "ads" },
+      { key: "promos", label: "promos" },
+      { key: "bumpers", label: "bumpers" },
+      { key: "ids", label: "ids" },
+      { key: "intros", label: "intros" },
+      { key: "mtv", label: "mtv" }
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      var list = source[candidates[i].key];
+      if (Array.isArray(list) && list.length) {
+        pools.push({ name: candidates[i].label, items: list });
+      }
+    }
+    if (!pools.length) return null;
+    var minInterval = source.minInterval || source.minInsert || source.min || null;
+    var maxInterval = source.maxInterval || source.maxInsert || source.max || null;
+    var every = source.every || source.insertEvery || null;
+    if (every && !minInterval && !maxInterval) {
+      minInterval = every;
+      maxInterval = every;
+    }
+    minInterval = minInterval || 3;
+    maxInterval = maxInterval || 5;
+    if (maxInterval < minInterval) maxInterval = minInterval;
+    return { pools: pools, minInterval: minInterval, maxInterval: maxInterval };
+  }
+
+  function interleaveList(channel, list, interleave) {
+    if (!interleave || !interleave.pools.length) return list;
+    var signature = computeInterleaveSignature(list, interleave);
+    var meta = state.interleaves[channel];
+    if (!meta || meta.signature !== signature) {
+      meta = {
+        signature: signature,
+        seed: Math.floor(Math.random() * 1000000000)
+      };
+      state.interleaves[channel] = meta;
+      saveState();
+    }
+    var rng = seededRandom(meta.seed);
+    var out = [];
+    var sinceInsert = 0;
+    var nextInsert = randomBetween(interleave.minInterval, interleave.maxInterval, rng);
+    for (var i = 0; i < list.length; i++) {
+      out.push(list[i]);
+      sinceInsert++;
+      if (sinceInsert >= nextInsert) {
+        var insert = pickInsert(interleave.pools, rng);
+        if (insert) out.push(insert);
+        sinceInsert = 0;
+        nextInsert = randomBetween(interleave.minInterval, interleave.maxInterval, rng);
+      }
+    }
+    return out;
+  }
+
+  function computeInterleaveSignature(list, interleave) {
+    var hash = 5381;
+    hash = hashItems(list, hash);
+    for (var i = 0; i < interleave.pools.length; i++) {
+      hash = hashString(interleave.pools[i].name, hash);
+      hash = hashItems(interleave.pools[i].items, hash);
+    }
+    hash = hashNumber(interleave.minInterval, hash);
+    hash = hashNumber(interleave.maxInterval, hash);
+    return String(hash >>> 0);
+  }
+
+  function hashItems(items, hash) {
+    for (var i = 0; i < items.length; i++) {
+      hash = hashString(String(items[i]), hash);
+    }
+    return hash;
+  }
+
+  function hashString(value, hash) {
+    for (var i = 0; i < value.length; i++) {
+      hash = ((hash << 5) + hash) + value.charCodeAt(i);
+    }
+    return hash;
+  }
+
+  function hashNumber(value, hash) {
+    return hashString(String(value), hash);
+  }
+
+  function seededRandom(seed) {
+    var value = seed;
+    return function () {
+      value = (value * 1664525 + 1013904223) % 4294967296;
+      return value / 4294967296;
+    };
+  }
+
+  function randomBetween(min, max, rng) {
+    var span = max - min + 1;
+    return min + Math.floor(rng() * span);
+  }
+
+  function pickInsert(pools, rng) {
+    var pool = pools[Math.floor(rng() * pools.length)];
+    if (!pool || !pool.items.length) return "";
+    return pool.items[Math.floor(rng() * pool.items.length)];
+  }
+
+  function currentListLabel() {
+    var channel = currentChannel();
+    if (channel === FAVORITES_CHANNEL) return FAVORITES_CHANNEL.toUpperCase();
+    if (!playlists) return channel.toUpperCase();
+    var entry = normalizePlaylistEntry(playlists[channel]);
+    var name = entry.name || channel;
+    return String(name).toUpperCase();
+  }
+
+  function ensureShuffle(channel, length) {
+    var order = state.shuffles[channel];
+    if (!Array.isArray(order) || order.length !== length) {
+      order = [];
+      for (var i = 0; i < length; i++) order.push(i);
+      for (var j = order.length - 1; j > 0; j--) {
+        var k = Math.floor(Math.random() * (j + 1));
+        var tmp = order[j];
+        order[j] = order[k];
+        order[k] = tmp;
+      }
+      state.shuffles[channel] = order;
+      saveState();
+    }
+    return order;
+  }
+
+  function storedPosition(channel) {
+    var pos = state.positions[channel];
+    return (typeof pos === "number" && pos >= 0) ? pos : 0;
+  }
+
+  function syncState() {
+    var channel = currentChannel();
+    state.channel = channel;
+    state.positions[channel] = videoIdx;
+    saveState();
+  }
+
+  function toggleFavorite() {
+    var list = currentList();
+    if (!list.length) return;
+    var currentVideo = list[videoIdx];
+    if (!currentVideo) return;
+    var favorites = state.favorites || [];
+    if (currentChannel() === FAVORITES_CHANNEL) {
+      var removeIdx = favorites.indexOf(currentVideo);
+      if (removeIdx !== -1) favorites.splice(removeIdx, 1);
+      state.favorites = favorites;
+      saveState();
+      if (!favorites.length) return;
+      if (videoIdx >= favorites.length) videoIdx = favorites.length - 1;
+      playCurrent();
+      return;
+    }
+    if (favorites.indexOf(currentVideo) === -1) {
+      favorites.push(currentVideo);
+      state.favorites = favorites;
+      saveState();
+    }
+    showTitleBar();
   }
 
   /* ===== Title bar ===== */
@@ -70,7 +321,13 @@
     var parsed = parseTitle(data.title || "");
     artistEl.textContent = parsed.artist;
     titleEl.textContent = parsed.title;
+    if (listLabelEl) listLabelEl.textContent = currentListLabel();
     showTitleBar();
+  }
+
+  function setPlayerVisible(isVisible) {
+    if (!playerEl) return;
+    playerEl.style.visibility = isVisible ? "visible" : "hidden";
   }
 
   /* ===== YouTube ===== */
@@ -84,6 +341,7 @@
     if (!ytReady || !videoId) return;
 
     clearTimeout(playWatchdog);
+    setPlayerVisible(false);
 
     if (player && player.loadVideoById) {
       player.loadVideoById(videoId);
@@ -95,10 +353,15 @@
       videoId: videoId,
       width: "1920",
       height: "1080",
+      host: "https://www.youtube-nocookie.com",
       playerVars: {
         autoplay: 1,
         controls: 0,
         rel: 0,
+        disablekb: 1,
+        fs: 0,
+        iv_load_policy: 3,
+        showinfo: 0,
         modestbranding: 1,
         playsinline: 1,
         origin: location.origin
@@ -112,12 +375,17 @@
         onStateChange: function (e) {
           if (e.data === YT.PlayerState.PLAYING) {
             clearTimeout(playWatchdog);
+            e.target.unMute();
+            if (e.target.setVolume) e.target.setVolume(100);
+            setPlayerVisible(true);
             updateTitle();
           }
           if (e.data === YT.PlayerState.ENDED) nextVideo();
         },
         onError: function () {
-          nextVideo(); // 🔒 zabezpieczenie
+          setPlayerVisible(false);
+          if (lastDirection < 0) prevVideo();
+          else nextVideo(); // 🔒 zabezpieczenie
         }
       }
     });
@@ -136,27 +404,30 @@
     if (!list.length) return;
     clampVideo();
     createOrLoad(list[videoIdx]);
+    syncState();
   }
 
   function nextVideo() {
+    lastDirection = 1;
     videoIdx++;
     playCurrent();
   }
 
   function prevVideo() {
+    lastDirection = -1;
     videoIdx--;
     playCurrent();
   }
 
   function channelUp() {
     channelIdx = (channelIdx - 1 + channels.length) % channels.length;
-    videoIdx = 0;
+    videoIdx = storedPosition(currentChannel());
     playCurrent();
   }
 
   function channelDown() {
     channelIdx = (channelIdx + 1) % channels.length;
-    videoIdx = 0;
+    videoIdx = storedPosition(currentChannel());
     playCurrent();
   }
 
@@ -170,6 +441,18 @@
 
   /* ===== Remote ===== */
 
+  if (document.body) {
+    document.body.tabIndex = -1;
+  }
+
+  if (playerEl) {
+    playerEl.addEventListener("click", function () {
+      setTimeout(function () {
+        if (document.body) document.body.focus();
+      }, 0);
+    });
+  }
+
   document.addEventListener("keydown", function (e) {
     var t = now();
     if (t - lastKeyTs < 120) return;
@@ -180,11 +463,32 @@
       case 40: channelDown(); break;
       case 37: prevVideo(); break;
       case 39: nextVideo(); break;
-      case 13: togglePause(); break;
+      case 13:
+        if (!okLongPressTimer) {
+          okLongPressHandled = false;
+          okLongPressTimer = setTimeout(function () {
+            okLongPressHandled = true;
+            okLongPressTimer = null;
+            toggleFavorite();
+          }, 700);
+        }
+        break;
       case 10009:
         try { tizen.application.getCurrentApplication().exit(); } catch (_) {}
         break;
     }
+  });
+
+  document.addEventListener("keyup", function (e) {
+    if (e.keyCode !== 13) return;
+    if (okLongPressTimer) {
+      clearTimeout(okLongPressTimer);
+      okLongPressTimer = null;
+    }
+    if (!okLongPressHandled) {
+      togglePause();
+    }
+    okLongPressHandled = false;
   });
 
   /* ===== Bootstrap ===== */
@@ -194,8 +498,10 @@
     xhr.open("GET", PLAYLIST_URL + "?t=" + now(), true);
     xhr.onload = function () {
       playlists = JSON.parse(xhr.responseText);
-      channels = safeChannels(playlists);
-      channelIdx = Math.max(0, channels.indexOf(DEFAULT_CHANNEL));
+      channels = buildChannels(playlists);
+      var preferredChannel = state.channel || DEFAULT_CHANNEL;
+      channelIdx = Math.max(0, channels.indexOf(preferredChannel));
+      videoIdx = storedPosition(currentChannel());
       cb();
     };
     xhr.send();
