@@ -487,8 +487,8 @@
     if (!ytReady || !videoId) return;
 
     clearTimeout(playWatchdog);
-    // Don't hide player during load - YouTube requires visibility for autoplay
-    // Player will be hidden only on error
+    // Ensure player is visible before loading - required for YouTube autoplay
+    setPlayerVisible(true);
 
     if (player && player.loadVideoById) {
       player.loadVideoById(videoId);
@@ -516,10 +516,12 @@
       },
       events: {
         onReady: function (e) {
-          e.target.playVideo();
+          // Delay playVideo() slightly to ensure Tizen TV player is ready
+          setTimeout(function() {
+            e.target.playVideo();
+          }, 100);
           // NOTE: NIE unmutować tutaj! YouTube blokuje autoplay jeśli player
           // jest odmutowany przed rozpoczęciem odtwarzania. Unmute jest w onStateChange PLAYING.
-          // setPlayerVisible(true); - moved to PLAYING state to avoid black screen
           startWatchdog();
 
           // TRIPLE SEEK - pomijanie reklam YouTube (wzorowane na wantmymtv.xyz)
@@ -598,7 +600,7 @@
   function startWatchdog() {
     playWatchdog = setTimeout(function () {
       nextVideo();
-    }, 8000);
+    }, 15000); // Increased from 8s to 15s for Tizen TV
   }
 
   /* ===== Navigation ===== */
