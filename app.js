@@ -228,8 +228,8 @@
       minInterval = every;
       maxInterval = every;
     }
-    minInterval = minInterval || 3;
-    maxInterval = maxInterval || 5;
+    minInterval = minInterval || 5;
+    maxInterval = maxInterval || 7;
     if (maxInterval < minInterval) maxInterval = minInterval;
     return { pools: pools, minInterval: minInterval, maxInterval: maxInterval };
   }
