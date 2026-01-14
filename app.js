@@ -18,7 +18,7 @@
   var userInteracted = false;
   var playlistsReady = false;
   var PLAYLIST_CACHE_KEY = "wmmtv-playlists-v1";
-  var INTERLEAVE_POOL_KEYS = ["ads", "promos", "bumpers", "ids", "intros", "mtv"];
+  var INTERLEAVE_POOL_KEYS = ["commercials", "amp"];
   var SEQUENTIAL_CHANNEL_PATTERNS = ["live aid"];
 
   var titleBar = document.getElementById("titleBar");
@@ -228,8 +228,8 @@
       minInterval = every;
       maxInterval = every;
     }
-    minInterval = minInterval || 3;
-    maxInterval = maxInterval || 5;
+    minInterval = minInterval || 5;
+    maxInterval = maxInterval || 7;
     if (maxInterval < minInterval) maxInterval = minInterval;
     return { pools: pools, minInterval: minInterval, maxInterval: maxInterval };
   }
