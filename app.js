@@ -487,7 +487,8 @@
     if (!ytReady || !videoId) return;
 
     clearTimeout(playWatchdog);
-    setPlayerVisible(false);
+    // Don't hide player during load - YouTube requires visibility for autoplay
+    // Player will be hidden only on error
 
     if (player && player.loadVideoById) {
       player.loadVideoById(videoId);
