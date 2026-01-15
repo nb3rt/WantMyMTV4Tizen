@@ -118,34 +118,11 @@
       height: 100%;
       background: #000;
       z-index: 10;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      transition: opacity 0.3s ease;
       pointer-events: none;
     }
 
     .loading-overlay.hidden {
-      opacity: 0;
-    }
-
-    .loading-spinner {
-      font-size: 80px;
-      animation: spin 2s linear infinite;
-    }
-
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    .loading-text {
-      font-family: 'VT323', monospace;
-      font-size: 32px;
-      color: #ffd700;
-      margin-top: 20px;
-      letter-spacing: 3px;
+      display: none;
     }
   </style>
 </head>
@@ -154,10 +131,7 @@
   <div id="player"></div>
 
   <!-- Loading overlay to hide YouTube errors during video transitions -->
-  <div id="loadingOverlay" class="loading-overlay">
-    <div class="loading-spinner">⏳</div>
-    <div class="loading-text">LOADING...</div>
-  </div>
+  <div id="loadingOverlay" class="loading-overlay"></div>
 
   <img class="mtv-logo" src="rewindlogo.png" alt="MTV Rewind">
 
