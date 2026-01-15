@@ -26,6 +26,7 @@
   var titleEl = document.getElementById("title");
   var listLabelEl = document.getElementById("listLabel");
   var playerEl = document.getElementById("player");
+  var loadingOverlay = document.getElementById("loadingOverlay");
   var lastDirection = 1;
 
   /* ===== Logging & Error Handling ===== */
@@ -34,6 +35,8 @@
   var errorLog = [];
   var failedVideos = {}; // Blacklist of video IDs that failed to play
   var MAX_ERROR_LOG_SIZE = 50;
+  var BLACKLIST_KEY = "wmmtv-blacklist-v1";
+  var BLACKLIST_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
   function log() {
     if (!DEBUG_MODE) return;
@@ -95,6 +98,59 @@
       case 101: return 'Video not allowed to embed';
       case 150: return 'Video not allowed to embed';
       default: return 'Unknown error (' + errorCode + ')';
+    }
+  }
+
+  /* ===== Persistent Blacklist ===== */
+
+  function loadBlacklist() {
+    try {
+      var raw = localStorage.getItem(BLACKLIST_KEY);
+      if (!raw) return {};
+      var blacklist = JSON.parse(raw);
+      var now = Date.now();
+      var cleaned = {};
+      // Remove entries older than 7 days
+      for (var id in blacklist) {
+        if (blacklist[id] && blacklist[id].timestamp) {
+          if (now - blacklist[id].timestamp < BLACKLIST_MAX_AGE) {
+            cleaned[id] = blacklist[id];
+          }
+        }
+      }
+      return cleaned;
+    } catch (e) {
+      log('Failed to load blacklist', e);
+      return {};
+    }
+  }
+
+  function saveBlacklist() {
+    try {
+      localStorage.setItem(BLACKLIST_KEY, JSON.stringify(failedVideos));
+      log('Blacklist saved', { count: Object.keys(failedVideos).length });
+    } catch (e) {
+      log('Failed to save blacklist', e);
+    }
+  }
+
+  function isVideoBlacklisted(videoId) {
+    return failedVideos[videoId] ? true : false;
+  }
+
+  /* ===== Loading Overlay ===== */
+
+  function showLoading() {
+    if (loadingOverlay) {
+      loadingOverlay.classList.remove('hidden');
+      log('Loading overlay shown');
+    }
+  }
+
+  function hideLoading() {
+    if (loadingOverlay) {
+      loadingOverlay.classList.add('hidden');
+      log('Loading overlay hidden');
     }
   }
 
@@ -487,6 +543,10 @@
     if (!ytReady || !videoId) return;
 
     clearTimeout(playWatchdog);
+
+    // Show loading overlay to hide YouTube errors during video load
+    showLoading();
+
     // Ensure player is visible before loading - required for YouTube autoplay
     setPlayerVisible(true);
 
@@ -558,6 +618,7 @@
         onStateChange: function (e) {
           if (e.data === YT.PlayerState.PLAYING) {
             clearTimeout(playWatchdog);
+            hideLoading(); // Hide loading overlay when video starts playing
             e.target.unMute();
             if (e.target.setVolume) e.target.setVolume(100);
             setPlayerVisible(true);
@@ -580,16 +641,15 @@
             videoIndex: videoIdx
           });
 
-          // Add to blacklist (don't try this video again in this session)
+          // Add to persistent blacklist (survives page refresh)
           failedVideos[badVideoId] = {
             errorCode: errorCode,
             timestamp: now()
           };
+          saveBlacklist();
 
-          // Hide player immediately to prevent YouTube error message flash
-          setPlayerVisible(false);
-
-          // Skip to next video based on direction
+          // Loading overlay already hides YouTube error, no need to hide player
+          // Just skip to next video based on direction
           if (lastDirection < 0) prevVideo();
           else nextVideo();
         }
@@ -913,6 +973,12 @@
     if (!ytReady || !playlists) return;
     playCurrent();
   }
+
+  /* ===== Bootstrap ===== */
+
+  // Load persistent blacklist from localStorage
+  failedVideos = loadBlacklist();
+  log('Blacklist loaded', { count: Object.keys(failedVideos).length });
 
   loadPlaylists(maybeStart);
 })();
