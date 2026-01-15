@@ -617,28 +617,12 @@
         onStateChange: function (e) {
           log('onStateChange', { state: e.data });
           if (e.data === YT.PlayerState.PLAYING) {
-            log('State: PLAYING - showing player');
+            log('State: PLAYING - video playing');
             clearTimeout(playWatchdog);
             hideLoading(); // Hide loading overlay when video starts playing
 
-            // DON'T unmute here! Chrome will pause the video if unmute without user interaction.
-            // Unmute happens in keydown handler after first user interaction.
-            if (userInteracted) {
-              try {
-                if (e.target.isMuted && e.target.isMuted()) {
-                  e.target.unMute();
-                  log('unMuted (user already interacted)');
-                }
-                if (e.target.setVolume) {
-                  e.target.setVolume(100);
-                  log('volume set to 100');
-                }
-              } catch (err) {
-                log('Error unmuting:', err);
-              }
-            } else {
-              log('Waiting for user interaction before unmuting');
-            }
+            // DON'T unmute here! Keep video muted for autoplay to work.
+            // Unmute only happens in keydown handler when user presses a key.
 
             setPlayerVisible(true);
             updateTitle();
@@ -776,6 +760,14 @@
           player.unMute();
           if (player.setVolume) player.setVolume(100);
           log('Player unmuted after user interaction');
+
+          // If Chrome paused the video after unmute, resume it
+          setTimeout(function() {
+            if (player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PAUSED) {
+              log('Video was paused by Chrome after unmute, resuming...');
+              player.playVideo();
+            }
+          }, 100);
         } catch (err) {
           log('Error unmuting on keydown:', err);
         }
