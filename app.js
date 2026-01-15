@@ -579,17 +579,6 @@
           log('onReady called');
           e.target.playVideo();
           log('playVideo() called');
-
-          // Try to unmute immediately after playVideo in same call
-          // This might bypass Chrome autoplay policy on Tizen TV
-          try {
-            e.target.unMute();
-            if (e.target.setVolume) e.target.setVolume(100);
-            log('Unmuted in onReady');
-          } catch (err) {
-            log('Error unmuting in onReady:', err);
-          }
-
           startWatchdog();
 
           // TRIPLE SEEK - pomijanie reklam YouTube (wzorowane na wantmymtv.xyz)
@@ -630,8 +619,17 @@
             clearTimeout(playWatchdog);
             hideLoading(); // Hide loading overlay when video starts playing
 
-            // DON'T unmute here! Keep video muted for autoplay to work.
-            // Unmute only happens in keydown handler when user presses a key.
+            // Unmute after slight delay to let video stabilize
+            // Permissions-Policy header allows autoplay with sound
+            setTimeout(function() {
+              try {
+                e.target.unMute();
+                if (e.target.setVolume) e.target.setVolume(100);
+                log('Unmuted after PLAYING state');
+              } catch (err) {
+                log('Error unmuting:', err);
+              }
+            }, 100);
 
             setPlayerVisible(true);
             updateTitle();
