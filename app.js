@@ -544,8 +544,8 @@
 
     clearTimeout(playWatchdog);
 
-    // Show loading overlay to hide YouTube errors during video load
-    showLoading();
+    // Overlay is already shown by navigation functions (nextVideo, prevVideo, etc.)
+    // This ensures error messages are hidden before YouTube starts loading
 
     // Ensure player is visible before loading - required for YouTube autoplay
     setPlayerVisible(true);
@@ -693,18 +693,21 @@
   }
 
   function nextVideo() {
+    showLoading(); // Show overlay BEFORE loading starts
     lastDirection = 1;
     videoIdx++;
     playCurrent();
   }
 
   function prevVideo() {
+    showLoading(); // Show overlay BEFORE loading starts
     lastDirection = -1;
     videoIdx--;
     playCurrent();
   }
 
   function channelUp() {
+    showLoading(); // Show overlay BEFORE loading starts
     channelIdx = (channelIdx - 1 + channels.length) % channels.length;
     videoIdx = storedPosition(currentChannel());
     log('Channel UP', { channel: currentChannel(), channelIdx: channelIdx });
@@ -713,6 +716,7 @@
   }
 
   function channelDown() {
+    showLoading(); // Show overlay BEFORE loading starts
     channelIdx = (channelIdx + 1) % channels.length;
     videoIdx = storedPosition(currentChannel());
     log('Channel DOWN', { channel: currentChannel(), channelIdx: channelIdx });
