@@ -31,7 +31,7 @@
 
   /* ===== Logging & Error Handling ===== */
 
-  var DEBUG_MODE = false; // Set to false in production
+  var DEBUG_MODE = true; // Set to false in production
   var errorLog = [];
   var failedVideos = {}; // Blacklist of video IDs that failed to play
   var MAX_ERROR_LOG_SIZE = 50;
@@ -576,10 +576,9 @@
       },
       events: {
         onReady: function (e) {
-          // Delay playVideo() slightly to ensure Tizen TV player is ready
-          setTimeout(function() {
-            e.target.playVideo();
-          }, 100);
+          log('onReady called');
+          e.target.playVideo();
+          log('playVideo() called');
           // NOTE: NIE unmutować tutaj! YouTube blokuje autoplay jeśli player
           // jest odmutowany przed rozpoczęciem odtwarzania. Unmute jest w onStateChange PLAYING.
           startWatchdog();
@@ -616,11 +615,27 @@
           }, 1500);
         },
         onStateChange: function (e) {
+          log('onStateChange', { state: e.data });
           if (e.data === YT.PlayerState.PLAYING) {
+            log('State: PLAYING - unmuting and showing player');
             clearTimeout(playWatchdog);
             hideLoading(); // Hide loading overlay when video starts playing
-            e.target.unMute();
-            if (e.target.setVolume) e.target.setVolume(100);
+
+            // Try to unmute and set volume
+            try {
+              if (e.target.isMuted && e.target.isMuted()) {
+                e.target.unMute();
+                log('unMuted');
+              }
+              if (e.target.setVolume) {
+                e.target.setVolume(100);
+                log('volume set to 100');
+              }
+              log('Current volume:', e.target.getVolume());
+            } catch (err) {
+              log('Error unmuting:', err);
+            }
+
             setPlayerVisible(true);
             updateTitle();
           }
@@ -974,7 +989,9 @@
   }
 
   function maybeStart() {
+    log('maybeStart called', { ytReady: ytReady, hasPlaylists: !!playlists });
     if (!ytReady || !playlists) return;
+    log('Starting playback');
     playCurrent();
   }
 
