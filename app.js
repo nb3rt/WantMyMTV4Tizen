@@ -579,8 +579,17 @@
           log('onReady called');
           e.target.playVideo();
           log('playVideo() called');
-          // NOTE: NIE unmutować tutaj! YouTube blokuje autoplay jeśli player
-          // jest odmutowany przed rozpoczęciem odtwarzania. Unmute jest w onStateChange PLAYING.
+
+          // Try to unmute immediately after playVideo in same call
+          // This might bypass Chrome autoplay policy on Tizen TV
+          try {
+            e.target.unMute();
+            if (e.target.setVolume) e.target.setVolume(100);
+            log('Unmuted in onReady');
+          } catch (err) {
+            log('Error unmuting in onReady:', err);
+          }
+
           startWatchdog();
 
           // TRIPLE SEEK - pomijanie reklam YouTube (wzorowane na wantmymtv.xyz)
@@ -751,29 +760,6 @@
   }
 
   document.addEventListener("keydown", function (e) {
-    // First keypress - unmute player (Chrome autoplay policy requires user interaction)
-    if (!userInteracted) {
-      userInteracted = true;
-      log('First user interaction - unmuting player');
-      if (player && player.unMute) {
-        try {
-          player.unMute();
-          if (player.setVolume) player.setVolume(100);
-          log('Player unmuted after user interaction');
-
-          // If Chrome paused the video after unmute, resume it
-          setTimeout(function() {
-            if (player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PAUSED) {
-              log('Video was paused by Chrome after unmute, resuming...');
-              player.playVideo();
-            }
-          }, 100);
-        } catch (err) {
-          log('Error unmuting on keydown:', err);
-        }
-      }
-    }
-
     var t = now();
     if (t - lastKeyTs < 120) return;
     lastKeyTs = t;
