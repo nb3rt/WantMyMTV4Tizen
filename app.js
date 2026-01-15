@@ -617,23 +617,27 @@
         onStateChange: function (e) {
           log('onStateChange', { state: e.data });
           if (e.data === YT.PlayerState.PLAYING) {
-            log('State: PLAYING - unmuting and showing player');
+            log('State: PLAYING - showing player');
             clearTimeout(playWatchdog);
             hideLoading(); // Hide loading overlay when video starts playing
 
-            // Try to unmute and set volume
-            try {
-              if (e.target.isMuted && e.target.isMuted()) {
-                e.target.unMute();
-                log('unMuted');
+            // DON'T unmute here! Chrome will pause the video if unmute without user interaction.
+            // Unmute happens in keydown handler after first user interaction.
+            if (userInteracted) {
+              try {
+                if (e.target.isMuted && e.target.isMuted()) {
+                  e.target.unMute();
+                  log('unMuted (user already interacted)');
+                }
+                if (e.target.setVolume) {
+                  e.target.setVolume(100);
+                  log('volume set to 100');
+                }
+              } catch (err) {
+                log('Error unmuting:', err);
               }
-              if (e.target.setVolume) {
-                e.target.setVolume(100);
-                log('volume set to 100');
-              }
-              log('Current volume:', e.target.getVolume());
-            } catch (err) {
-              log('Error unmuting:', err);
+            } else {
+              log('Waiting for user interaction before unmuting');
             }
 
             setPlayerVisible(true);
@@ -763,8 +767,21 @@
   }
 
   document.addEventListener("keydown", function (e) {
-    userInteracted = true;
-    if (player && player.unMute) player.unMute();
+    // First keypress - unmute player (Chrome autoplay policy requires user interaction)
+    if (!userInteracted) {
+      userInteracted = true;
+      log('First user interaction - unmuting player');
+      if (player && player.unMute) {
+        try {
+          player.unMute();
+          if (player.setVolume) player.setVolume(100);
+          log('Player unmuted after user interaction');
+        } catch (err) {
+          log('Error unmuting on keydown:', err);
+        }
+      }
+    }
+
     var t = now();
     if (t - lastKeyTs < 120) return;
     lastKeyTs = t;
