@@ -579,8 +579,6 @@
           log('onReady called');
           e.target.playVideo();
           log('playVideo() called');
-          // NOTE: NIE unmutować tutaj! YouTube blokuje autoplay jeśli player
-          // jest odmutowany przed rozpoczęciem odtwarzania. Unmute jest w onStateChange PLAYING.
           startWatchdog();
 
           // TRIPLE SEEK - pomijanie reklam YouTube (wzorowane na wantmymtv.xyz)
@@ -617,24 +615,21 @@
         onStateChange: function (e) {
           log('onStateChange', { state: e.data });
           if (e.data === YT.PlayerState.PLAYING) {
-            log('State: PLAYING - unmuting and showing player');
+            log('State: PLAYING - video playing');
             clearTimeout(playWatchdog);
             hideLoading(); // Hide loading overlay when video starts playing
 
-            // Try to unmute and set volume
-            try {
-              if (e.target.isMuted && e.target.isMuted()) {
+            // Unmute after slight delay to let video stabilize
+            // Permissions-Policy header allows autoplay with sound
+            setTimeout(function() {
+              try {
                 e.target.unMute();
-                log('unMuted');
+                if (e.target.setVolume) e.target.setVolume(100);
+                log('Unmuted after PLAYING state');
+              } catch (err) {
+                log('Error unmuting:', err);
               }
-              if (e.target.setVolume) {
-                e.target.setVolume(100);
-                log('volume set to 100');
-              }
-              log('Current volume:', e.target.getVolume());
-            } catch (err) {
-              log('Error unmuting:', err);
-            }
+            }, 100);
 
             setPlayerVisible(true);
             updateTitle();
@@ -763,8 +758,6 @@
   }
 
   document.addEventListener("keydown", function (e) {
-    userInteracted = true;
-    if (player && player.unMute) player.unMute();
     var t = now();
     if (t - lastKeyTs < 120) return;
     lastKeyTs = t;
